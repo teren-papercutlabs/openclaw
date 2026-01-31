@@ -48,6 +48,12 @@ export type SessionEntry = {
   execAsk?: string;
   execNode?: string;
   responseUsage?: "on" | "off" | "tokens" | "full";
+  /** New multi-select usage flags (preferred over responseUsage when present). */
+  responseUsageFlags?: {
+    tokens?: boolean; // Show input/output token counts
+    cost?: boolean; // Show estimated cost
+    context?: boolean; // Show context window % used
+  };
   providerOverride?: string;
   modelOverride?: string;
   authProfileOverride?: string;

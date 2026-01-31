@@ -1,9 +1,5 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
-import type { TypingMode } from "../../config/types.js";
-import type { OriginatingChannelType, TemplateContext } from "../templating.js";
-import type { GetReplyOptions, ReplyPayload } from "../types.js";
-import type { TypingController } from "./typing.js";
 import { lookupContextTokens } from "../../agents/context.js";
 import { DEFAULT_CONTEXT_TOKENS } from "../../agents/defaults.js";
 import { resolveModelAuthMode } from "../../agents/model-auth.js";
@@ -18,10 +14,17 @@ import {
   updateSessionStore,
   updateSessionStoreEntry,
 } from "../../config/sessions.js";
-import { emitDiagnosticEvent, isDiagnosticsEnabled } from "../../infra/diagnostic-events.js";
+import type { TypingMode } from "../../config/types.js";
 import { defaultRuntime } from "../../runtime.js";
 import { estimateUsageCost, resolveModelCostConfig } from "../../utils/usage-format.js";
-import { resolveResponseUsageMode, type VerboseLevel } from "../thinking.js";
+import type { OriginatingChannelType, TemplateContext } from "../templating.js";
+import {
+  hasAnyUsageFlag,
+  legacyUsageModeToFlags,
+  type ResponseUsageFlags,
+  type VerboseLevel,
+} from "../thinking.js";
+import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import { runAgentTurnWithFallback } from "./agent-runner-execution.js";
 import {
   createShouldEmitToolOutput,
@@ -38,9 +41,11 @@ import { resolveBlockStreamingCoalescing } from "./block-streaming.js";
 import { createFollowupRunner } from "./followup-runner.js";
 import { enqueueFollowupRun, type FollowupRun, type QueueSettings } from "./queue.js";
 import { createReplyToModeFilterForChannel, resolveReplyToMode } from "./reply-threading.js";
-import { incrementCompactionCount } from "./session-updates.js";
 import { persistSessionUsageUpdate } from "./session-usage.js";
+import { incrementCompactionCount } from "./session-updates.js";
+import type { TypingController } from "./typing.js";
 import { createTypingSignaler } from "./typing-mode.js";
+import { emitDiagnosticEvent, isDiagnosticsEnabled } from "../../infra/diagnostic-events.js";
 
 const BLOCK_REPLY_SEND_TIMEOUT_MS = 15_000;
 
@@ -464,28 +469,50 @@ export async function runReplyAgent(params: {
       });
     }
 
-    const responseUsageRaw =
-      activeSessionEntry?.responseUsage ??
-      (sessionKey ? activeSessionStore?.[sessionKey]?.responseUsage : undefined);
-    const responseUsageMode = resolveResponseUsageMode(responseUsageRaw);
-    if (responseUsageMode !== "off" && hasNonzeroUsage(usage)) {
+    // Resolve usage flags (new system) with backwards compat for legacy mode
+    const responseUsageFlags: ResponseUsageFlags =
+      activeSessionEntry?.responseUsageFlags ??
+      (sessionKey ? activeSessionStore?.[sessionKey]?.responseUsageFlags : undefined) ??
+      legacyUsageModeToFlags(
+        activeSessionEntry?.responseUsage ??
+          (sessionKey ? activeSessionStore?.[sessionKey]?.responseUsage : undefined),
+      ) ??
+      (replyToChannel
+        ? cfg.agents?.defaults?.responseUsageDefaultByChannel?.[replyToChannel]
+        : undefined) ??
+      cfg.agents?.defaults?.responseUsageDefault ??
+      {};
+
+
+    if (hasAnyUsageFlag(responseUsageFlags) && hasNonzeroUsage(usage)) {
       const authMode = resolveModelAuthMode(providerUsed, cfg);
-      const showCost = authMode === "api-key";
-      const costConfig = showCost
-        ? resolveModelCostConfig({
-            provider: providerUsed,
-            model: modelUsed,
-            config: cfg,
-          })
-        : undefined;
-      let formatted = formatResponseUsageLine({
+      // Only allow cost display if user has API key auth (not pass-through)
+      const allowCost = authMode === "api-key";
+      const costConfig =
+        allowCost && responseUsageFlags?.cost
+          ? resolveModelCostConfig({
+              provider: providerUsed,
+              model: modelUsed,
+              config: cfg,
+            })
+          : undefined;
+
+      // Calculate current context usage for context % display
+      // This represents the conversation size after this response:
+      // - input: non-cached input tokens
+      // - cacheRead: cached input tokens (together = full prompt)
+      // - output: response tokens (will be part of next turn's context)
+      const currentContextTokens =
+        (usage.input ?? 0) + (usage.cacheRead ?? 0) + (usage.output ?? 0);
+
+      const formatted = formatResponseUsageLine({
         usage,
-        showCost,
+        showCost: allowCost && Boolean(responseUsageFlags?.cost),
         costConfig,
+        flags: responseUsageFlags,
+        contextUsedTokens: currentContextTokens,
+        contextMaxTokens: contextTokensUsed,
       });
-      if (formatted && responseUsageMode === "full" && sessionKey) {
-        formatted = `${formatted} · session ${sessionKey}`;
-      }
       if (formatted) {
         responseUsageLine = formatted;
       }

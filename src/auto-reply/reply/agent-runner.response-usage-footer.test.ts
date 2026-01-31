@@ -31,7 +31,10 @@ vi.mock("./queue.js", async () => {
 
 import { runReplyAgent } from "./agent-runner.js";
 
-function createRun(params: { responseUsage: "tokens" | "full"; sessionKey: string }) {
+function createRun(params: {
+  responseUsageFlags?: { tokens?: boolean; cost?: boolean; context?: boolean };
+  sessionKey: string;
+}) {
   const typing = createMockTypingController();
   const sessionCtx = {
     Provider: "whatsapp",
@@ -44,7 +47,7 @@ function createRun(params: { responseUsage: "tokens" | "full"; sessionKey: strin
   const sessionEntry: SessionEntry = {
     sessionId: "session",
     updatedAt: Date.now(),
-    responseUsage: params.responseUsage,
+    responseUsageFlags: params.responseUsageFlags,
   };
 
   const followupRun = {
@@ -105,7 +108,7 @@ describe("runReplyAgent response usage footer", () => {
     runWithModelFallbackMock.mockReset();
   });
 
-  it("appends session key when responseUsage=full", async () => {
+  it("shows tokens when tokens flag is enabled", async () => {
     runEmbeddedPiAgentMock.mockResolvedValueOnce({
       payloads: [{ text: "ok" }],
       meta: {
@@ -125,13 +128,14 @@ describe("runReplyAgent response usage footer", () => {
     );
 
     const sessionKey = "agent:main:whatsapp:dm:+1000";
-    const res = await createRun({ responseUsage: "full", sessionKey });
+    const res = await createRun({ responseUsageFlags: { tokens: true }, sessionKey });
     const payload = Array.isArray(res) ? res[0] : res;
     expect(String(payload?.text ?? "")).toContain("Usage:");
-    expect(String(payload?.text ?? "")).toContain(`· session ${sessionKey}`);
+    expect(String(payload?.text ?? "")).toContain("in /");
+    expect(String(payload?.text ?? "")).toContain("out");
   });
 
-  it("does not append session key when responseUsage=tokens", async () => {
+  it("shows tokens and context when both flags are enabled", async () => {
     runEmbeddedPiAgentMock.mockResolvedValueOnce({
       payloads: [{ text: "ok" }],
       meta: {
@@ -151,9 +155,38 @@ describe("runReplyAgent response usage footer", () => {
     );
 
     const sessionKey = "agent:main:whatsapp:dm:+1000";
-    const res = await createRun({ responseUsage: "tokens", sessionKey });
+    const res = await createRun({
+      responseUsageFlags: { tokens: true, context: true },
+      sessionKey,
+    });
     const payload = Array.isArray(res) ? res[0] : res;
     expect(String(payload?.text ?? "")).toContain("Usage:");
-    expect(String(payload?.text ?? "")).not.toContain("· session ");
+    expect(String(payload?.text ?? "")).toContain("% ctx");
+  });
+
+  it("does not show usage footer when no flags are set", async () => {
+    runEmbeddedPiAgentMock.mockResolvedValueOnce({
+      payloads: [{ text: "ok" }],
+      meta: {
+        agentMeta: {
+          provider: "anthropic",
+          model: "claude",
+          usage: { input: 12, output: 3 },
+        },
+      },
+    });
+    runWithModelFallbackMock.mockImplementationOnce(
+      async ({ run }: { run: (provider: string, model: string) => Promise<unknown> }) => ({
+        result: await run("anthropic", "claude"),
+        provider: "anthropic",
+        model: "claude",
+      }),
+    );
+
+    const sessionKey = "agent:main:whatsapp:dm:+1000";
+    const res = await createRun({ responseUsageFlags: {}, sessionKey });
+    const payload = Array.isArray(res) ? res[0] : res;
+    expect(String(payload?.text ?? "")).not.toContain("Usage:");
+    expect(String(payload?.text ?? "")).not.toContain("Context:");
   });
 });

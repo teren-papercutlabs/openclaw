@@ -179,6 +179,102 @@ export function resolveResponseUsageMode(raw?: string | null): UsageDisplayLevel
   return normalizeUsageDisplay(raw) ?? "off";
 }
 
+// Response usage flags for multi-select toggle system
+export type ResponseUsageFlags = {
+  tokens?: boolean; // Show input/output token counts
+  cost?: boolean; // Show estimated cost
+  context?: boolean; // Show context window % used
+};
+
+/**
+ * Parse usage toggle argument to determine which flag to toggle.
+ * Returns the flag name or undefined if not a valid toggle arg.
+ */
+export function parseUsageToggleArg(
+  raw?: string | null,
+): keyof ResponseUsageFlags | "off" | undefined {
+  if (!raw) {
+    return undefined;
+  }
+  const key = raw.toLowerCase().trim();
+  if (["tokens", "token", "tok"].includes(key)) {
+    return "tokens";
+  }
+  if (["context", "ctx"].includes(key)) {
+    return "context";
+  }
+  if (["off", "disable", "disabled", "none", "clear"].includes(key)) {
+    return "off";
+  }
+  // Note: "cost" without args triggers cost report, so we don't parse it as toggle here
+  return undefined;
+}
+
+/**
+ * Check if any usage flag is enabled.
+ */
+export function hasAnyUsageFlag(flags?: ResponseUsageFlags | null): boolean {
+  if (!flags) {
+    return false;
+  }
+  return Boolean(flags.tokens || flags.cost || flags.context);
+}
+
+/**
+ * Convert old responseUsage mode to new flags for backwards compatibility.
+ */
+export function legacyUsageModeToFlags(
+  mode?: UsageDisplayLevel | "on" | null,
+): ResponseUsageFlags | undefined {
+  if (!mode || mode === "off") {
+    return undefined;
+  }
+  if (mode === "tokens" || mode === "on") {
+    return { tokens: true };
+  }
+  if (mode === "full") {
+    return { tokens: true, cost: true };
+  }
+  return undefined;
+}
+
+/**
+ * Cycle through usage flag combinations.
+ * Pattern: all off -> tokens -> tokens+context -> all off
+ */
+export function cycleUsageFlags(current?: ResponseUsageFlags | null): ResponseUsageFlags {
+  if (!current || !hasAnyUsageFlag(current)) {
+    // All off -> tokens only
+    return { tokens: true };
+  }
+  if (current.tokens && !current.context && !current.cost) {
+    // tokens only -> tokens + context
+    return { tokens: true, context: true };
+  }
+  // tokens + context (or any other combo) -> all off
+  return {};
+}
+
+/**
+ * Format usage flags for display in command confirmation.
+ */
+export function formatUsageFlags(flags?: ResponseUsageFlags | null): string {
+  if (!flags || !hasAnyUsageFlag(flags)) {
+    return "off";
+  }
+  const parts: string[] = [];
+  if (flags.tokens) {
+    parts.push("tokens");
+  }
+  if (flags.cost) {
+    parts.push("cost");
+  }
+  if (flags.context) {
+    parts.push("context");
+  }
+  return parts.join("+") || "off";
+}
+
 // Normalize elevated flags used to toggle elevated bash permissions.
 export function normalizeElevatedLevel(raw?: string | null): ElevatedLevel | undefined {
   if (!raw) {

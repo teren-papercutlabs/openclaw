@@ -1,21 +1,28 @@
-import type { SessionEntry } from "../../config/sessions.js";
-import type { CommandHandler } from "./commands-types.js";
 import { abortEmbeddedPiRun } from "../../agents/pi-embedded.js";
+import type { SessionEntry } from "../../config/sessions.js";
 import { updateSessionStore } from "../../config/sessions.js";
 import { logVerbose } from "../../globals.js";
 import { createInternalHookEvent, triggerInternalHook } from "../../hooks/internal-hooks.js";
 import { scheduleGatewaySigusr1Restart, triggerOpenClawRestart } from "../../infra/restart.js";
-import { loadCostUsageSummary, loadSessionCostSummary } from "../../infra/session-cost-usage.js";
-import { formatTokenCount, formatUsd } from "../../utils/usage-format.js";
 import { parseActivationCommand } from "../group-activation.js";
 import { parseSendPolicyCommand } from "../send-policy.js";
-import { normalizeUsageDisplay, resolveResponseUsageMode } from "../thinking.js";
+import {
+  cycleUsageFlags,
+  formatUsageFlags,
+  hasAnyUsageFlag,
+  legacyUsageModeToFlags,
+  parseUsageToggleArg,
+  type ResponseUsageFlags,
+} from "../thinking.js";
+import { loadCostUsageSummary, loadSessionCostSummary } from "../../infra/session-cost-usage.js";
+import { formatTokenCount, formatUsd } from "../../utils/usage-format.js";
 import {
   formatAbortReplyText,
   isAbortTrigger,
   setAbortMemory,
   stopSubagentsForRequester,
 } from "./abort.js";
+import type { CommandHandler } from "./commands-types.js";
 import { clearSessionQueues } from "./queue.js";
 
 function resolveSessionEntryForKey(
@@ -160,7 +167,8 @@ export const handleUsageCommand: CommandHandler = async (params, allowTextComman
   }
 
   const rawArgs = normalized === "/usage" ? "" : normalized.slice("/usage".length).trim();
-  const requested = rawArgs ? normalizeUsageDisplay(rawArgs) : undefined;
+
+  // Handle /usage cost - shows cost report (unchanged behavior)
   if (rawArgs.toLowerCase().startsWith("cost")) {
     const sessionSummary = await loadSessionCostSummary({
       sessionId: params.sessionEntry?.sessionId,
@@ -199,24 +207,47 @@ export const handleUsageCommand: CommandHandler = async (params, allowTextComman
     };
   }
 
-  if (rawArgs && !requested) {
+  // Get current flags (with backwards compat from legacy mode)
+  const currentFlags: ResponseUsageFlags =
+    params.sessionEntry?.responseUsageFlags ??
+    (params.sessionKey
+      ? params.sessionStore?.[params.sessionKey]?.responseUsageFlags
+      : undefined) ??
+    legacyUsageModeToFlags(
+      params.sessionEntry?.responseUsage ??
+        (params.sessionKey ? params.sessionStore?.[params.sessionKey]?.responseUsage : undefined),
+    ) ??
+    {};
+
+  let nextFlags: ResponseUsageFlags;
+  const toggleArg = parseUsageToggleArg(rawArgs);
+
+  if (!rawArgs) {
+    // No args: cycle through combinations (all off -> tokens -> tokens+context -> all off)
+    nextFlags = cycleUsageFlags(currentFlags);
+  } else if (toggleArg === "off") {
+    // /usage off: disable all flags
+    nextFlags = {};
+  } else if (toggleArg) {
+    // /usage tokens or /usage context: toggle the specific flag
+    nextFlags = { ...currentFlags };
+    nextFlags[toggleArg] = !currentFlags[toggleArg];
+  } else {
+    // Unknown argument
     return {
       shouldContinue: false,
-      reply: { text: "⚙️ Usage: /usage off|tokens|full|cost" },
+      reply: { text: "⚙️ Usage: /usage [tokens|context|off|cost]" },
     };
   }
 
-  const currentRaw =
-    params.sessionEntry?.responseUsage ??
-    (params.sessionKey ? params.sessionStore?.[params.sessionKey]?.responseUsage : undefined);
-  const current = resolveResponseUsageMode(currentRaw);
-  const next = requested ?? (current === "off" ? "tokens" : current === "tokens" ? "full" : "off");
-
+  // Persist the new flags
   if (params.sessionEntry && params.sessionStore && params.sessionKey) {
-    if (next === "off") {
-      delete params.sessionEntry.responseUsage;
+    // Clear legacy mode, use new flags
+    delete params.sessionEntry.responseUsage;
+    if (hasAnyUsageFlag(nextFlags)) {
+      params.sessionEntry.responseUsageFlags = nextFlags;
     } else {
-      params.sessionEntry.responseUsage = next;
+      delete params.sessionEntry.responseUsageFlags;
     }
     params.sessionEntry.updatedAt = Date.now();
     params.sessionStore[params.sessionKey] = params.sessionEntry;
@@ -230,7 +261,7 @@ export const handleUsageCommand: CommandHandler = async (params, allowTextComman
   return {
     shouldContinue: false,
     reply: {
-      text: `⚙️ Usage footer: ${next}.`,
+      text: `⚙️ Usage footer: ${formatUsageFlags(nextFlags)}.`,
     },
   };
 };
