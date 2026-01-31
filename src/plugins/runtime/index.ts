@@ -74,6 +74,7 @@ import { monitorIMessageProvider } from "../../imessage/monitor.js";
 import { probeIMessage } from "../../imessage/probe.js";
 import { sendMessageIMessage } from "../../imessage/send.js";
 import { getChannelActivity, recordChannelActivity } from "../../infra/channel-activity.js";
+import { sendToSession } from "../../infra/outbound/send-to-session.js";
 import { enqueueSystemEvent } from "../../infra/system-events.js";
 import {
   listLineAccountIds,
@@ -335,6 +336,9 @@ export function createPluginRuntime(): PluginRuntime {
         buildTemplateMessageFromPayload,
         monitorLineProvider,
       },
+    },
+    outbound: {
+      sendToSession,
     },
     logging: {
       shouldLogVerbose,
