@@ -11,8 +11,11 @@ import { loadConfig } from "../../config/config.js";
 import { resolveStorePath } from "../../config/sessions/paths.js";
 import { loadSessionStore } from "../../config/sessions/store.js";
 import type { SessionChannelId } from "../../config/sessions/types.js";
+import {
+  isDeliverableMessageChannel,
+  type DeliverableMessageChannel,
+} from "../../utils/message-channel.js";
 import { deliverOutboundPayloads, type OutboundDeliveryResult } from "./deliver.js";
-import type { OutboundChannel } from "./targets.js";
 
 export type SendToSessionParams = {
   /** The session key to send to. */
@@ -35,16 +38,16 @@ export type SendToSessionResult =
 
 /**
  * Resolve the outbound channel from a session channel ID.
- * Returns undefined if the channel is not a valid outbound channel.
+ * Returns undefined if the channel is not a valid deliverable channel.
  */
 function resolveOutboundChannel(
   channel: SessionChannelId | undefined,
-): Exclude<OutboundChannel, "none"> | undefined {
+): DeliverableMessageChannel | undefined {
   if (!channel) {
     return undefined;
   }
-  // webchat is not a valid outbound channel for this purpose
-  if (channel === "webchat") {
+  // Use proper deliverable channel check instead of type cast
+  if (!isDeliverableMessageChannel(channel)) {
     return undefined;
   }
   return channel;
