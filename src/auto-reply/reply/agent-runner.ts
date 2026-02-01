@@ -483,6 +483,22 @@ export async function runReplyAgent(params: {
       cfg.agents?.defaults?.responseUsageDefault ??
       {};
 
+    // DEBUG: Trace usage footer resolution
+    console.log(
+      "[DEBUG usage-footer]",
+      JSON.stringify({
+        sessionKey,
+        hasActiveSessionEntry: !!activeSessionEntry,
+        activeSessionEntryFlags: activeSessionEntry?.responseUsageFlags,
+        storeFlags: sessionKey ? activeSessionStore?.[sessionKey]?.responseUsageFlags : undefined,
+        resolvedFlags: responseUsageFlags,
+        hasUsage: !!usage,
+        usage: usage
+          ? { input: usage.input, output: usage.output, cacheRead: usage.cacheRead }
+          : null,
+      }),
+    );
+
     if (hasAnyUsageFlag(responseUsageFlags) && hasNonzeroUsage(usage)) {
       const authMode = resolveModelAuthMode(providerUsed, cfg);
       // Only allow cost display if user has API key auth (not pass-through)

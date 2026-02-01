@@ -134,6 +134,9 @@
 
 ## Agent-Specific Notes
 
+- **Kleya**: PcL's main OpenClaw instance running on the Mac Mini. Config at `~/.openclaw/openclaw.json`, daemon label `ai.openclaw.gateway`, port 18789. Client instances (e.g., SmilePlus Dental) run as separate daemons with their own profiles.
+- **Agent tools config**: `tools` (allow/deny) goes on individual agents in `agents.list[]`, NOT on `agents.defaults`. The defaults schema does not support tool policies.
+- **New instance auth**: When creating a new OpenClaw instance/profile, copy `auth-profiles.json` from an existing agent dir (e.g., `~/.openclaw/agents/main/agent/auth-profiles.json`) to the new agent's dir. System-wide OAuth (e.g., `~/.config/gemini-cli/`) is not enough — OpenClaw needs the agent-level auth-profiles.json.
 - Vocabulary: "makeup" = "mac app".
 - Never edit `node_modules` (global/Homebrew/npm/git installs too). Updates overwrite. Skill notes go in `tools.md` or `AGENTS.md`.
 - Signal: "update fly" => `fly ssh console -a flawd-bot -C "bash -lc 'cd /data/clawd/openclaw && git pull --rebase origin main'"` then `fly machines restart e825232f34d058 -a flawd-bot`.
