@@ -13,6 +13,14 @@ import {
   HumanDelaySchema,
 } from "./zod-schema.core.js";
 
+const ResponseUsageFlagsSchema = z
+  .object({
+    tokens: z.boolean().optional(),
+    cost: z.boolean().optional(),
+    context: z.boolean().optional(),
+  })
+  .strict();
+
 export const AgentDefaultsSchema = z
   .object({
     model: z
@@ -117,6 +125,8 @@ export const AgentDefaultsSchema = z
     elevatedDefault: z
       .union([z.literal("off"), z.literal("on"), z.literal("ask"), z.literal("full")])
       .optional(),
+    responseUsageDefault: ResponseUsageFlagsSchema.optional(),
+    responseUsageDefaultByChannel: z.record(z.string(), ResponseUsageFlagsSchema).optional(),
     blockStreamingDefault: z.union([z.literal("off"), z.literal("on")]).optional(),
     blockStreamingBreak: z.union([z.literal("text_end"), z.literal("message_end")]).optional(),
     blockStreamingChunk: BlockStreamingChunkSchema.optional(),

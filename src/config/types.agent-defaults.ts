@@ -11,6 +11,7 @@ import type {
   SandboxPruneSettings,
 } from "./types.sandbox.js";
 import type { MemorySearchConfig } from "./types.tools.js";
+import type { ResponseUsageFlags } from "../auto-reply/thinking.js";
 
 export type AgentModelEntryConfig = {
   alias?: string;
@@ -138,6 +139,10 @@ export type AgentDefaultsConfig = {
   verboseDefault?: "off" | "on" | "full";
   /** Default elevated level when no /elevated directive is present. */
   elevatedDefault?: "off" | "on" | "ask" | "full";
+  /** Default response usage footer flags when no session override is set. */
+  responseUsageDefault?: ResponseUsageFlags;
+  /** Per-channel response usage footer defaults (override responseUsageDefault). */
+  responseUsageDefaultByChannel?: Record<string, ResponseUsageFlags>;
   /** Default block streaming level when no override is present. */
   blockStreamingDefault?: "off" | "on";
   /**
