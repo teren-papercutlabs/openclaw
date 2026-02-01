@@ -483,7 +483,6 @@ export async function runReplyAgent(params: {
       cfg.agents?.defaults?.responseUsageDefault ??
       {};
 
-
     if (hasAnyUsageFlag(responseUsageFlags) && hasNonzeroUsage(usage)) {
       const authMode = resolveModelAuthMode(providerUsed, cfg);
       // Only allow cost display if user has API key auth (not pass-through)
