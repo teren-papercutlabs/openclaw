@@ -179,11 +179,6 @@ export async function compactEmbeddedPiSessionDirect(
       : sandbox.workspaceDir
     : resolvedWorkspace;
   await fs.mkdir(effectiveWorkspace, { recursive: true });
-  await ensureSessionHeader({
-    sessionFile: params.sessionFile,
-    sessionId: params.sessionId,
-    cwd: effectiveWorkspace,
-  });
 
   let restoreSkillEnv: (() => void) | undefined;
   process.chdir(effectiveWorkspace);
@@ -363,6 +358,11 @@ export async function compactEmbeddedPiSessionDirect(
       sessionFile: params.sessionFile,
     });
     try {
+      await ensureSessionHeader({
+        sessionFile: params.sessionFile,
+        sessionId: params.sessionId,
+        cwd: effectiveWorkspace,
+      });
       await repairSessionFileIfNeeded({
         sessionFile: params.sessionFile,
         warn: (message) => log.warn(message),
@@ -450,7 +450,7 @@ export async function compactEmbeddedPiSessionDirect(
         const hookRunner = getGlobalHookRunner();
         const hookCtx = {
           agentId: sessionAgentId,
-          sessionKey: params.sessionKey,
+          sessionKey: params.sessionKey?.trim() || params.sessionId,
           workspaceDir: effectiveWorkspace,
           messageProvider: params.messageChannel ?? params.messageProvider,
         };
@@ -482,18 +482,18 @@ export async function compactEmbeddedPiSessionDirect(
         const messageCountAfter = session.messages.length;
         const compactedCount = messageCountBefore - messageCountAfter;
         if (hookRunner?.hasHooks("after_compaction")) {
-          hookRunner
-            .runAfterCompaction(
+          try {
+            await hookRunner.runAfterCompaction(
               {
                 messageCount: messageCountAfter,
                 tokenCount: tokensAfter,
                 compactedCount,
               },
               hookCtx,
-            )
-            .catch((err) => {
-              log.warn(`after_compaction hook error: ${String(err)}`);
-            });
+            );
+          } catch (err) {
+            log.warn(`after_compaction hook error: ${String(err)}`);
+          }
         }
 
         return {
