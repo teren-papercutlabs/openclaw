@@ -32,12 +32,18 @@ export async function persistSessionUsageUpdate(params: {
         update: async (entry) => {
           const input = params.usage?.input ?? 0;
           const output = params.usage?.output ?? 0;
-          const promptTokens =
-            input + (params.usage?.cacheRead ?? 0) + (params.usage?.cacheWrite ?? 0);
+          const cacheRead = params.usage?.cacheRead ?? 0;
+          const cacheWrite = params.usage?.cacheWrite ?? 0;
+          const promptTokens = input + cacheRead + cacheWrite;
+          // Calculate turn tokens for context accumulation (includes all token types)
+          const turnContextTokens = input + output + cacheRead + cacheWrite;
+          // Accumulate context tokens (resets on compaction via separate handler)
+          const cumulativeContextTokens = (entry.cumulativeContextTokens ?? 0) + turnContextTokens;
           const patch: Partial<SessionEntry> = {
             inputTokens: input,
             outputTokens: output,
             totalTokens: promptTokens > 0 ? promptTokens : (params.usage?.total ?? input),
+            cumulativeContextTokens,
             modelProvider: params.providerUsed ?? entry.modelProvider,
             model: params.modelUsed ?? entry.model,
             contextTokens: params.contextTokensUsed ?? entry.contextTokens,

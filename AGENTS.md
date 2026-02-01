@@ -60,6 +60,11 @@
 - Type-check/build: `pnpm build`
 - Lint/format: `pnpm check`
 - Tests: `pnpm test` (vitest); coverage: `pnpm test:coverage`
+- **Gateway from source (local dev):** To test gateway changes against live channels:
+  1. Kill existing gateway: `pkill -f openclaw-gateway || true`
+  2. Rebuild: `pnpm build`
+  3. Run from source: `pnpm openclaw gateway run --bind loopback`
+  The `pnpm openclaw` wrapper auto-rebuilds if stale, but explicit `pnpm build` ensures latest changes are compiled.
 
 ## Coding Style & Naming Conventions
 

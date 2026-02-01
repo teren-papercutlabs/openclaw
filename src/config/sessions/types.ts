@@ -79,6 +79,8 @@ export type SessionEntry = {
   modelProvider?: string;
   model?: string;
   contextTokens?: number;
+  /** Cumulative tokens used in current context window (resets on compaction). */
+  cumulativeContextTokens?: number;
   compactionCount?: number;
   memoryFlushAt?: number;
   memoryFlushCompactionCount?: number;

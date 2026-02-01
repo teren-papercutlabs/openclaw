@@ -338,9 +338,9 @@ function buildChatCommands(): ChatCommandDefinition[] {
       args: [
         {
           name: "mode",
-          description: "off, tokens, full, or cost",
+          description: "off, tokens, context, or cost",
           type: "string",
-          choices: ["off", "tokens", "full", "cost"],
+          choices: ["off", "tokens", "context", "cost"],
         },
       ],
       argsMenu: "auto",

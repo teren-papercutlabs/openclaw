@@ -295,9 +295,14 @@ export async function incrementCompactionCount(params: {
   // If tokensAfter is provided, update the cached token counts to reflect post-compaction state
   if (tokensAfter != null && tokensAfter > 0) {
     updates.totalTokens = tokensAfter;
+    // Reset cumulative context to post-compaction value
+    updates.cumulativeContextTokens = tokensAfter;
     // Clear input/output breakdown since we only have the total estimate after compaction
     updates.inputTokens = undefined;
     updates.outputTokens = undefined;
+  } else {
+    // Compaction without token count - reset cumulative to 0
+    updates.cumulativeContextTokens = 0;
   }
   sessionStore[sessionKey] = {
     ...entry,

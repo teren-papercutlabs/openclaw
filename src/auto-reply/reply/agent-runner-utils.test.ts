@@ -122,11 +122,11 @@ describe("formatContextPercent", () => {
     expect(formatContextPercent(-100, 100000)).toBe(null);
   });
 
-  it("calculates percentage correctly", () => {
-    expect(formatContextPercent(50000, 100000)).toBe("50% ctx");
-    expect(formatContextPercent(67000, 100000)).toBe("67% ctx");
-    expect(formatContextPercent(1000, 200000)).toBe("1% ctx");
-    expect(formatContextPercent(199000, 200000)).toBe("100% ctx");
+  it("formats tokens and percentage correctly", () => {
+    expect(formatContextPercent(50000, 100000)).toBe("50K (50%)");
+    expect(formatContextPercent(67000, 100000)).toBe("67K (67%)");
+    expect(formatContextPercent(1000, 200000)).toBe("1.0K (1%)");
+    expect(formatContextPercent(199000, 200000)).toBe("199K (100%)");
   });
 });
 
@@ -170,7 +170,7 @@ describe("formatResponseUsageLine", () => {
         contextUsedTokens: 67000,
         contextMaxTokens: 100000,
       });
-      expect(result).toBe("Usage: 1.2k in / 245 out · 67% ctx");
+      expect(result).toBe("Usage: 1.2k in / 245 out · 67K (67%)");
     });
 
     it("shows tokens, cost, and context with all flags", () => {
@@ -184,7 +184,7 @@ describe("formatResponseUsageLine", () => {
       });
       expect(result).toContain("Usage: 1.2k in / 245 out");
       expect(result).toContain("est $");
-      expect(result).toContain("67% ctx");
+      expect(result).toContain("67K (67%)");
     });
 
     it("shows context only when only context flag is set", () => {
@@ -195,7 +195,7 @@ describe("formatResponseUsageLine", () => {
         contextUsedTokens: 67000,
         contextMaxTokens: 100000,
       });
-      expect(result).toBe("Context: 67%");
+      expect(result).toBe("Context: 67K (67%)");
     });
 
     it("returns null when no flags are set", () => {
