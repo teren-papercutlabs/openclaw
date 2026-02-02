@@ -3,8 +3,11 @@ import type { FinalizedMsgContext } from "../templating.js";
 import type { GetReplyOptions, ReplyPayload } from "../types.js";
 import type { ReplyDispatcher, ReplyDispatchKind } from "./reply-dispatcher.js";
 import { resolveSessionAgentId } from "../../agents/agent-scope.js";
+import type { MessagingToolSend } from "../../agents/pi-embedded-runner.js";
+import { extractMessagingToolSend } from "../../agents/pi-embedded-subscribe.tools.js";
 import { loadSessionStore, resolveStorePath } from "../../config/sessions.js";
 import { logVerbose } from "../../globals.js";
+import { onAgentEvent } from "../../infra/agent-events.js";
 import { isDiagnosticsEnabled } from "../../infra/diagnostic-events.js";
 import {
   logMessageProcessed,
@@ -15,11 +18,13 @@ import { getGlobalHookRunner } from "../../plugins/hook-runner-global.js";
 import { maybeApplyTtsToPayload, normalizeTtsAutoMode, resolveTtsConfig } from "../../tts/tts.js";
 import { getReplyFromConfig } from "../reply.js";
 import { formatAbortReplyText, tryFastAbortFromMessage } from "./abort.js";
+import { shouldSuppressBlockRepliesOnMessageToolSend } from "./block-reply-suppression.js";
 import { shouldSkipDuplicateInbound } from "./inbound-dedupe.js";
 import { isRoutableChannel, routeReply } from "./route-reply.js";
 
 const AUDIO_PLACEHOLDER_RE = /^<media:audio>(\s*\([^)]*\))?$/i;
 const AUDIO_HEADER_RE = /^\[Audio\b/i;
+const MAX_MESSAGING_SENT_TARGETS = 200;
 
 const normalizeMediaType = (value: string): string => value.split(";")[0]?.trim().toLowerCase();
 
@@ -94,6 +99,60 @@ export async function dispatchReplyFromConfig(params: {
   const sessionKey = ctx.SessionKey;
   const startTime = diagnosticsEnabled ? Date.now() : 0;
   const canTrackSession = diagnosticsEnabled && Boolean(sessionKey);
+  const messagingToolSentTargets: MessagingToolSend[] = [];
+  const pendingMessagingTargets = new Map<string, MessagingToolSend>();
+  let unsubscribeAgentEvents: (() => void) | undefined;
+
+  const trimMessagingToolSentTargets = () => {
+    if (messagingToolSentTargets.length > MAX_MESSAGING_SENT_TARGETS) {
+      const overflow = messagingToolSentTargets.length - MAX_MESSAGING_SENT_TARGETS;
+      messagingToolSentTargets.splice(0, overflow);
+    }
+  };
+
+  const startMessagingToolTracking = (runId: string) => {
+    pendingMessagingTargets.clear();
+    messagingToolSentTargets.length = 0;
+    if (unsubscribeAgentEvents) {
+      unsubscribeAgentEvents();
+    }
+    unsubscribeAgentEvents = onAgentEvent((evt) => {
+      if (evt.runId !== runId || evt.stream !== "tool") {
+        return;
+      }
+      const data = evt.data ?? {};
+      const phase = typeof data.phase === "string" ? data.phase : "";
+      const toolName = typeof data.name === "string" ? data.name : "";
+      const toolCallId = typeof data.toolCallId === "string" ? data.toolCallId : "";
+      if (!toolName || !toolCallId) {
+        return;
+      }
+      if (phase === "start") {
+        const args = data.args;
+        if (!args || typeof args !== "object") {
+          return;
+        }
+        const sendTarget = extractMessagingToolSend(toolName, args as Record<string, unknown>);
+        if (sendTarget) {
+          pendingMessagingTargets.set(toolCallId, sendTarget);
+        }
+        return;
+      }
+      if (phase !== "result") {
+        return;
+      }
+      const pendingTarget = pendingMessagingTargets.get(toolCallId);
+      if (!pendingTarget) {
+        return;
+      }
+      pendingMessagingTargets.delete(toolCallId);
+      const isError = Boolean(data.isError);
+      if (!isError) {
+        messagingToolSentTargets.push(pendingTarget);
+        trimMessagingToolSentTargets();
+      }
+    });
+  };
 
   const recordProcessed = (
     outcome: "completed" | "skipped" | "error",
@@ -210,6 +269,13 @@ export async function dispatchReplyFromConfig(params: {
   const shouldRouteToOriginating =
     isRoutableChannel(originatingChannel) && originatingTo && originatingChannel !== currentSurface;
   const ttsChannel = shouldRouteToOriginating ? originatingChannel : currentSurface;
+  const blockReplyChannel = shouldRouteToOriginating ? originatingChannel : currentSurface;
+  const blockReplyTarget = originatingTo ?? ctx.To;
+  const { onAgentRunStart: replyOnAgentRunStart, ...replyOptions } = params.replyOptions ?? {};
+  const handleAgentRunStart = (runId: string) => {
+    replyOnAgentRunStart?.(runId);
+    startMessagingToolTracking(runId);
+  };
 
   /**
    * Helper to send a payload via route-reply (async).
@@ -295,7 +361,8 @@ export async function dispatchReplyFromConfig(params: {
     const replyResult = await (params.replyResolver ?? getReplyFromConfig)(
       ctx,
       {
-        ...params.replyOptions,
+        ...replyOptions,
+        onAgentRunStart: handleAgentRunStart,
         onToolResult:
           ctx.ChatType !== "group" && ctx.CommandSource !== "native"
             ? (payload: ReplyPayload) => {
@@ -319,6 +386,17 @@ export async function dispatchReplyFromConfig(params: {
             : undefined,
         onBlockReply: (payload: ReplyPayload, context) => {
           const run = async () => {
+            if (
+              shouldSuppressBlockRepliesOnMessageToolSend({
+                cfg,
+                messagingToolSentTargets,
+                originatingChannel: blockReplyChannel,
+                originatingTo: blockReplyTarget,
+                accountId: ctx.AccountId,
+              })
+            ) {
+              return;
+            }
             // Accumulate block text for TTS generation after streaming
             if (payload.text) {
               if (accumulatedBlockText.length > 0) {
@@ -453,5 +531,9 @@ export async function dispatchReplyFromConfig(params: {
     recordProcessed("error", { error: String(err) });
     markIdle("message_error");
     throw err;
+  } finally {
+    if (unsubscribeAgentEvents) {
+      unsubscribeAgentEvents();
+    }
   }
 }

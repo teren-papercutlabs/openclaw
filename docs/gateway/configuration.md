@@ -2000,6 +2000,8 @@ Block streaming:
     agents: { defaults: { humanDelay: { mode: "natural" } } },
   }
   ```
+- `agents.defaults.suppressBlockRepliesOnMessageToolSend`: when `true`, suppress block replies if a
+  messaging tool already sent to the same provider/target (default: `true`).
   See [/concepts/streaming](/concepts/streaming) for behavior + chunking details.
 
 Typing indicators:

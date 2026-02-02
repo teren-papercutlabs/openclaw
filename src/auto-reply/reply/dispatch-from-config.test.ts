@@ -56,6 +56,7 @@ vi.mock("../../plugins/hook-runner-global.js", () => ({
 
 const { dispatchReplyFromConfig } = await import("./dispatch-from-config.js");
 const { resetInboundDedupe } = await import("./inbound-dedupe.js");
+const { emitAgentEvent } = await import("../../infra/agent-events.js");
 
 function createDispatcher(): ReplyDispatcher {
   return {
@@ -215,6 +216,68 @@ describe("dispatchReplyFromConfig", () => {
     expect(dispatcher.sendToolResult).toHaveBeenCalledWith(
       expect.objectContaining({ text: "🔧 exec: ls" }),
     );
+    expect(dispatcher.sendFinalReply).toHaveBeenCalledTimes(1);
+  });
+
+  it("suppresses block replies after messaging tool sends to the originating target", async () => {
+    mocks.tryFastAbortFromMessage.mockResolvedValue({
+      handled: false,
+      aborted: false,
+    });
+    const cfg = {
+      agents: {
+        defaults: {
+          suppressBlockRepliesOnMessageToolSend: true,
+        },
+      },
+    } as OpenClawConfig;
+    const dispatcher = createDispatcher();
+    const ctx = buildTestCtx({
+      Provider: "telegram",
+      Surface: "telegram",
+      OriginatingChannel: "telegram",
+      OriginatingTo: "telegram:123",
+      To: "telegram:123",
+    });
+
+    const replyResolver = async (
+      _ctx: MsgContext,
+      opts: GetReplyOptions | undefined,
+      _cfg: OpenClawConfig,
+    ) => {
+      opts?.onAgentRunStart?.("run-1");
+      emitAgentEvent({
+        runId: "run-1",
+        stream: "tool",
+        data: {
+          phase: "start",
+          name: "message",
+          toolCallId: "tool-1",
+          args: {
+            action: "send",
+            provider: "telegram",
+            to: "telegram:123",
+            message: "hello",
+          },
+        },
+      });
+      emitAgentEvent({
+        runId: "run-1",
+        stream: "tool",
+        data: {
+          phase: "result",
+          name: "message",
+          toolCallId: "tool-1",
+          isError: false,
+        },
+      });
+      await opts?.onBlockReply?.({ text: "streamed" });
+      return { text: "final" } satisfies ReplyPayload;
+    };
+
+    await dispatchReplyFromConfig({ ctx, cfg, dispatcher, replyResolver });
+
+    expect(dispatcher.sendBlockReply).not.toHaveBeenCalled();
     expect(dispatcher.sendFinalReply).toHaveBeenCalledTimes(1);
   });
 
