@@ -228,6 +228,50 @@ describe("CronService", () => {
     await store.cleanup();
   });
 
+  it("uses an upstream status prefix for upstream/main summaries", async () => {
+    const store = await makeStorePath();
+    const enqueueSystemEvent = vi.fn();
+    const requestHeartbeatNow = vi.fn();
+    const runIsolatedAgentJob = vi.fn(async () => ({
+      status: "ok" as const,
+      summary: "There are 141 new commits in upstream/main.",
+    }));
+
+    const cron = new CronService({
+      storePath: store.storePath,
+      cronEnabled: true,
+      log: noopLogger,
+      enqueueSystemEvent,
+      requestHeartbeatNow,
+      runIsolatedAgentJob,
+    });
+
+    await cron.start();
+    const atMs = Date.parse("2025-12-13T00:00:01.000Z");
+    await cron.add({
+      enabled: true,
+      name: "upstream status",
+      schedule: { kind: "at", atMs },
+      sessionTarget: "isolated",
+      wakeMode: "now",
+      isolation: { postToMainPrefix: "Cron" },
+      payload: { kind: "agentTurn", message: "check upstream", deliver: false },
+    });
+
+    vi.setSystemTime(new Date("2025-12-13T00:00:01.000Z"));
+    await vi.runOnlyPendingTimersAsync();
+
+    await cron.list({ includeDisabled: true });
+    expect(runIsolatedAgentJob).toHaveBeenCalledTimes(1);
+    expect(enqueueSystemEvent).toHaveBeenCalledWith(
+      "OpenClaw repo upstream status: There are 141 new commits in upstream/main.",
+      { agentId: undefined },
+    );
+    expect(requestHeartbeatNow).toHaveBeenCalled();
+    cron.stop();
+    await store.cleanup();
+  });
+
   it("migrates legacy payload.provider to payload.channel on load", async () => {
     const store = await makeStorePath();
     const enqueueSystemEvent = vi.fn();

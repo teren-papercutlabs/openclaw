@@ -6,6 +6,22 @@ import { locked } from "./locked.js";
 import { ensureLoaded, persist } from "./store.js";
 
 const MAX_TIMEOUT_MS = 2 ** 31 - 1;
+const DEFAULT_CRON_POST_PREFIX = "Cron";
+const UPSTREAM_STATUS_PREFIX = "OpenClaw repo upstream status";
+
+function shouldUseUpstreamStatusPrefix(body: string) {
+  const lowered = body.toLowerCase();
+  return lowered.includes("upstream/main") && lowered.includes("commit");
+}
+
+function resolvePostToMainPrefix(rawPrefix: string | undefined, body: string) {
+  const trimmed = rawPrefix?.trim();
+  const isDefault = !trimmed || trimmed === DEFAULT_CRON_POST_PREFIX;
+  if (isDefault && shouldUseUpstreamStatusPrefix(body)) {
+    return UPSTREAM_STATUS_PREFIX;
+  }
+  return trimmed || DEFAULT_CRON_POST_PREFIX;
+}
 
 export function armTimer(state: CronServiceState) {
   if (state.timer) {
@@ -190,7 +206,7 @@ export async function executeJob(
     const summaryText = res.summary?.trim();
     const deliveryMode = job.delivery?.mode ?? "announce";
     if (summaryText && deliveryMode !== "none") {
-      const prefix = "Cron";
+      const prefix = resolvePostToMainPrefix(undefined, summaryText);
       const label =
         res.status === "error" ? `${prefix} (error): ${summaryText}` : `${prefix}: ${summaryText}`;
       state.deps.enqueueSystemEvent(label, { agentId: job.agentId });
