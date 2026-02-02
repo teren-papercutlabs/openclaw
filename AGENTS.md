@@ -75,6 +75,17 @@
 - Aim to keep files under ~700 LOC; guideline only (not a hard guardrail). Split/refactor when it improves clarity or testability.
 - Naming: use **OpenClaw** for product/app/docs headings; use `openclaw` for CLI command, package/binary, paths, and config keys.
 
+## Upstream-Safe Changes (Fork Maintenance)
+
+When modifying openclaw code, prefer patterns that minimize merge conflicts with upstream:
+
+- **Extract over inline**: Put new logic in separate files rather than inlining in existing functions
+- **Config-gate PcL behavior**: Use config flags to enable/disable PcL-specific features
+- **Minimal touchpoints**: Keep modifications to existing upstream files to one-line calls to external functions
+- **Document modifications**: Note which files have PcL-specific changes
+
+This allows `git rebase upstream/main` to proceed with fewer conflicts.
+
 ## Release Channels (Naming)
 
 - stable: tagged releases only (e.g. `vYYYY.M.D`), npm dist-tag `latest`.
